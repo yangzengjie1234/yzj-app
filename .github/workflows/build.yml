@@ -53,10 +53,10 @@ jobs:
         
         # Install dependencies in smaller groups to identify issues
         echo "Installing basic tools..."
-        sudo apt-get install -y git zip unzip python3-pip
+        sudo apt-get install -y git zip unzip python3-pip wget curl
         
         echo "Installing Java and build tools..."
-        sudo apt-get install -y openjdk-8-jdk autoconf libtool pkg-config cmake
+        sudo apt-get install -y openjdk-11-jdk autoconf libtool pkg-config cmake
         
         echo "Installing development libraries..."
         sudo apt-get install -y zlib1g-dev libncurses5-dev libncursesw5-dev \
@@ -66,6 +66,9 @@ jobs:
         sudo apt-get install -y libtinfo5 || echo "libtinfo5 not available, continuing..."
         sudo apt-get install -y libfuse2 || echo "libfuse2 not available, continuing..."
         
+        # Set JAVA_HOME for Java 11
+        echo "JAVA_HOME=/usr/lib/jvm/java-11-openjdk-amd64" >> $GITHUB_ENV
+        
         # Verify Java installation
         java -version
         echo "System dependencies installation completed successfully"
@@ -73,7 +76,7 @@ jobs:
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install buildozer cython==0.29.32
+        pip install buildozer==1.5.0 cython==0.29.32
         pip install -r requirements.txt
     
     - name: Setup Android SDK
@@ -82,94 +85,126 @@ jobs:
         
         echo "Setting up Android SDK..."
         
-        # 下载Android命令行工具
+        # Download Android command line tools (latest version)
         echo "Downloading Android command line tools..."
-        wget -q https://dl.google.com/android/repository/commandlinetools-linux-8512546_latest.zip || {
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip || {
           echo "Failed to download Android command line tools"
           exit 1
         }
         
         echo "Extracting command line tools..."
-        unzip -q commandlinetools-linux-8512546_latest.zip
+        unzip -q commandlinetools-linux-9477386_latest.zip
         
-        # 创建Android SDK目录结构
+        # Create Android SDK directory structure
         echo "Setting up Android SDK directory structure..."
         mkdir -p $HOME/android-sdk/cmdline-tools
         mv cmdline-tools $HOME/android-sdk/cmdline-tools/latest
         
-        # 设置环境变量
+        # Set environment variables
         echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
         echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
         echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
         echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
         echo "$HOME/android-sdk/build-tools/31.0.0" >> $GITHUB_PATH
         
-        # 验证sdkmanager可用性
+        # Verify sdkmanager availability
         echo "Verifying sdkmanager..."
         $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --version
         
-        # 接受许可证 - 使用更强的方法
+        # Accept licenses - using stronger method
         echo "Accepting Android SDK licenses..."
         mkdir -p $HOME/android-sdk/licenses
         echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > $HOME/android-sdk/licenses/android-sdk-license
         echo "84831b9409646a918e30573bab4c9c91346d8abd" > $HOME/android-sdk/licenses/android-sdk-preview-license
         echo "d975f751698a77b662f1254ddbeed3901e976f5a" > $HOME/android-sdk/licenses/intel-android-extra-license
+        echo "601085b94cd77f0b54ff86406957099ebe79c4d6" > $HOME/android-sdk/licenses/android-googletv-license
+        echo "33b6a2b64607f11b759f320ef9dff4ae5c47d97a" > $HOME/android-sdk/licenses/google-gdk-license
         
-        # 再次确认许可证
+        # Confirm licenses again
         yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses || echo "License acceptance completed"
         
-        # 安装必要的Android组件 - 使用buildozer.spec中指定的版本
+        # Install necessary Android components - matching buildozer.spec versions
         echo "Installing Android SDK components..."
-        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0" || {
+        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager \
+          "platform-tools" \
+          "platforms;android-31" \
+          "build-tools;31.0.0" \
+          "build-tools;30.0.3" || {
           echo "Failed to install basic Android components"
           exit 1
         }
         
         echo "Installing Android NDK..."
-        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "ndk;23.1.7779620" || {
-          echo "Failed to install NDK"
-          exit 1
+        # Install NDK 23c (23.2.8568313) to match buildozer.spec
+        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "ndk;23.2.8568313" || {
+          echo "Failed to install NDK 23c, trying alternative..."
+          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "ndk;23.1.7779620" || {
+            echo "Failed to install any NDK version"
+            exit 1
+          }
         }
         
-        # 验证安装
+        # Verify installations
         echo "Verifying installations..."
         ls -la $HOME/android-sdk/build-tools/
         ls -la $HOME/android-sdk/platforms/
+        ls -la $HOME/android-sdk/ndk/ || echo "NDK directory not found"
         
-        # 验证AIDL工具
+        # Verify AIDL tool in multiple locations
         echo "Verifying AIDL tool..."
+        AIDL_FOUND=false
+        
+        # Check build-tools 31.0.0 first
         if [ -f "$HOME/android-sdk/build-tools/31.0.0/aidl" ]; then
-          echo "AIDL found at: $HOME/android-sdk/build-tools/31.0.0/aidl"
+          echo "✅ AIDL found at: $HOME/android-sdk/build-tools/31.0.0/aidl"
           $HOME/android-sdk/build-tools/31.0.0/aidl --version || echo "AIDL version check failed"
-        else
-          echo "AIDL not found, listing build-tools contents:"
-          ls -la $HOME/android-sdk/build-tools/31.0.0/ || echo "build-tools/31.0.0 directory not found"
+          AIDL_FOUND=true
+        fi
+        
+        # Check build-tools 30.0.3 as backup
+        if [ "$AIDL_FOUND" = false ] && [ -f "$HOME/android-sdk/build-tools/30.0.3/aidl" ]; then
+          echo "✅ AIDL found at: $HOME/android-sdk/build-tools/30.0.3/aidl"
+          $HOME/android-sdk/build-tools/30.0.3/aidl --version || echo "AIDL version check failed"
+          echo "$HOME/android-sdk/build-tools/30.0.3" >> $GITHUB_PATH
+          AIDL_FOUND=true
+        fi
+        
+        if [ "$AIDL_FOUND" = false ]; then
+          echo "❌ AIDL not found in any build-tools version"
+          echo "Listing all build-tools contents:"
+          for dir in $HOME/android-sdk/build-tools/*/; do
+            echo "Contents of $dir:"
+            ls -la "$dir" | grep -E "(aidl|dx|d8)" || echo "No build tools found"
+          done
           
-          # 尝试重新安装build-tools
-          echo "Attempting to reinstall build-tools..."
-          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --uninstall "build-tools;31.0.0"
-          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;31.0.0"
+          # Try to install additional build-tools versions
+          echo "Installing additional build-tools versions..."
+          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;32.0.0" || echo "Failed to install build-tools 32.0.0"
+          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;33.0.0" || echo "Failed to install build-tools 33.0.0"
           
-          # 再次验证
-          if [ -f "$HOME/android-sdk/build-tools/31.0.0/aidl" ]; then
-            echo "AIDL found after reinstall"
-          else
-            echo "AIDL still not found, trying alternative build-tools version"
-            $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3"
-            if [ -f "$HOME/android-sdk/build-tools/30.0.3/aidl" ]; then
-              echo "AIDL found in build-tools 30.0.3"
-              echo "$HOME/android-sdk/build-tools/30.0.3" >> $GITHUB_PATH
+          # Check again
+          for version in 33.0.0 32.0.0; do
+            if [ -f "$HOME/android-sdk/build-tools/$version/aidl" ]; then
+              echo "✅ AIDL found in build-tools $version"
+              echo "$HOME/android-sdk/build-tools/$version" >> $GITHUB_PATH
+              AIDL_FOUND=true
+              break
             fi
-          fi
+          done
+        fi
+        
+        if [ "$AIDL_FOUND" = false ]; then
+          echo "❌ Critical: AIDL tool not found in any build-tools version"
+          exit 1
         fi
         
         echo "Android SDK setup completed successfully"
     
     - name: Verify buildozer.spec
       run: |
-        echo "=== buildozer.spec 内容 ==="
+        echo "=== buildozer.spec content ==="
         cat buildozer.spec
-        echo "========================="
+        echo "============================="
     
     - name: Build APK (Debug)
       if: github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == ''
@@ -177,29 +212,41 @@ jobs:
         set -e
         echo "Starting debug APK build..."
         
-        # 显示环境信息
+        # Show environment information
         echo "=== Environment Information ==="
         echo "ANDROID_HOME: $ANDROID_HOME"
         echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+        echo "JAVA_HOME: $JAVA_HOME"
         echo "PATH: $PATH"
         echo "Java version: $(java -version 2>&1)"
         echo "Python version: $(python --version)"
         echo "Buildozer version: $(buildozer version)"
         echo "=============================="
         
-        # 清理之前的构建
+        # Clean previous builds
         echo "Cleaning previous builds..."
         buildozer android clean || echo "Clean failed, continuing..."
         
-        # 开始构建
+        # Start build
         echo "Building debug APK..."
         buildozer android debug -v || {
           echo "Build failed, showing buildozer log..."
           if [ -f .buildozer/logs/buildozer.log ]; then
             echo "=== Buildozer Log ==="
-            tail -50 .buildozer/logs/buildozer.log
-            echo "==================="
+            tail -100 .buildozer/logs/buildozer.log
+            echo "===================="
           fi
+          
+          # Show additional debug info
+          echo "=== Additional Debug Info ==="
+          echo "Buildozer directory contents:"
+          ls -la .buildozer/ || echo "No .buildozer directory"
+          echo "Android SDK contents:"
+          ls -la $ANDROID_HOME/ || echo "No Android SDK directory"
+          echo "Build-tools contents:"
+          ls -la $ANDROID_HOME/build-tools/ || echo "No build-tools directory"
+          echo "============================"
+          
           exit 1
         }
         
@@ -211,27 +258,28 @@ jobs:
         set -e
         echo "Starting release APK build..."
         
-        # 显示环境信息
+        # Show environment information
         echo "=== Environment Information ==="
         echo "ANDROID_HOME: $ANDROID_HOME"
         echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+        echo "JAVA_HOME: $JAVA_HOME"
         echo "Java version: $(java -version 2>&1)"
         echo "Python version: $(python --version)"
         echo "Buildozer version: $(buildozer version)"
         echo "=============================="
         
-        # 清理之前的构建
+        # Clean previous builds
         echo "Cleaning previous builds..."
         buildozer android clean || echo "Clean failed, continuing..."
         
-        # 开始构建
+        # Start build
         echo "Building release APK..."
         buildozer android release -v || {
           echo "Build failed, showing buildozer log..."
           if [ -f .buildozer/logs/buildozer.log ]; then
             echo "=== Buildozer Log ==="
-            tail -50 .buildozer/logs/buildozer.log
-            echo "==================="
+            tail -100 .buildozer/logs/buildozer.log
+            echo "===================="
           fi
           exit 1
         }
@@ -240,9 +288,9 @@ jobs:
     
     - name: List generated files
       run: |
-        echo "=== 生成的文件 ==="
+        echo "=== Generated files ==="
         find . -name "*.apk" -type f
-        ls -la bin/ || echo "bin目录不存在"
+        ls -la bin/ || echo "bin directory does not exist"
     
     - name: Upload Debug APK
       if: github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == ''
@@ -272,21 +320,21 @@ jobs:
     
     - name: Build Summary
       run: |
-        echo "## 🎉 构建完成!" >> $GITHUB_STEP_SUMMARY
+        echo "## 🎉 Build completed!" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📱 生成的APK文件:" >> $GITHUB_STEP_SUMMARY
+        echo "### 📱 Generated APK files:" >> $GITHUB_STEP_SUMMARY
         for apk in bin/*.apk; do
           if [ -f "$apk" ]; then
             echo "- $(basename "$apk") ($(du -h "$apk" | cut -f1))" >> $GITHUB_STEP_SUMMARY
           fi
         done
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### 📥 下载方式:" >> $GITHUB_STEP_SUMMARY
-        echo "1. 点击上方 'Artifacts' 部分" >> $GITHUB_STEP_SUMMARY
-        echo "2. 下载对应的APK文件" >> $GITHUB_STEP_SUMMARY
-        echo "3. 在Android设备上安装" >> $GITHUB_STEP_SUMMARY
+        echo "### 📥 Download method:" >> $GITHUB_STEP_SUMMARY
+        echo "1. Click 'Artifacts' section above" >> $GITHUB_STEP_SUMMARY
+        echo "2. Download corresponding APK file" >> $GITHUB_STEP_SUMMARY
+        echo "3. Install on Android device" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### ⚙️ 构建信息:" >> $GITHUB_STEP_SUMMARY
-        echo "- 构建时间: $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "- Python版本: $(python --version)" >> $GITHUB_STEP_SUMMARY
-        echo "- Buildozer版本: $(buildozer version)" >> $GITHUB_STEP_SUMMARY
+        echo "### ⚙️ Build information:" >> $GITHUB_STEP_SUMMARY
+        echo "- Build time: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "- Python version: $(python --version)" >> $GITHUB_STEP_SUMMARY
+        echo "- Buildozer version: $(buildozer version)" >> $GITHUB_STEP_SUMMARY
