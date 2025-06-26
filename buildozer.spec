@@ -44,7 +44,7 @@ android.minapi = 21
 android.ndk = 23.2.8568313
 
 # (int) Android SDK version to use
-#android.sdk = 31
+# android.sdk = 31  # DEPRECATED - This setting is no longer used
 
 # (str) Android entry point, default is ok for Kivy-based app
 android.entrypoint = org.kivy.android.PythonActivity
@@ -326,3 +326,11 @@ source.exclude_patterns = license,data/audio/*.wav,data/images/original/*
 #    Then, invoke the command line with the "demo" profile:
 #
 #buildozer --profile demo android debug
+
+[buildozer]
+
+# (int) Log level (0 = error only, 1 = info, 2 = debug (with command output))
+log_level = 2
+
+# (int) Display warning if buildozer is run as root (0 = False, 1 = True)
+warn_on_root = 1
