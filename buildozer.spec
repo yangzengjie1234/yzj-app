@@ -35,7 +35,7 @@ orientation = portrait
 fullscreen = 0
 
 # (int) Target Android API, should be as high as possible.
-android.api = 30
+android.api = 31
 
 # (int) Minimum API your APK will support.
 android.minapi = 21
@@ -44,7 +44,7 @@ android.minapi = 21
 android.ndk = 23c
 
 # (int) Android SDK version to use
-android.sdk = 30
+android.sdk = 31
 
 # (str) Android entry point, default is ok for Kivy-based app
 android.entrypoint = org.kivy.android.PythonActivity
