@@ -102,7 +102,7 @@ jobs:
         echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
         echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
         echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
-        echo "$HOME/android-sdk/build-tools/30.0.3" >> $GITHUB_PATH
+        echo "$HOME/android-sdk/build-tools/31.0.0" >> $GITHUB_PATH
         
         # 验证sdkmanager可用性
         echo "Verifying sdkmanager..."
@@ -120,7 +120,7 @@ jobs:
         
         # 安装必要的Android组件 - 使用buildozer.spec中指定的版本
         echo "Installing Android SDK components..."
-        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-31" "build-tools;30.0.3" || {
+        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-31" "build-tools;31.0.0" || {
           echo "Failed to install basic Android components"
           exit 1
         }
@@ -138,27 +138,27 @@ jobs:
         
         # 验证AIDL工具
         echo "Verifying AIDL tool..."
-        if [ -f "$HOME/android-sdk/build-tools/30.0.3/aidl" ]; then
-          echo "AIDL found at: $HOME/android-sdk/build-tools/30.0.3/aidl"
-          $HOME/android-sdk/build-tools/30.0.3/aidl --version || echo "AIDL version check failed"
+        if [ -f "$HOME/android-sdk/build-tools/31.0.0/aidl" ]; then
+          echo "AIDL found at: $HOME/android-sdk/build-tools/31.0.0/aidl"
+          $HOME/android-sdk/build-tools/31.0.0/aidl --version || echo "AIDL version check failed"
         else
           echo "AIDL not found, listing build-tools contents:"
-          ls -la $HOME/android-sdk/build-tools/30.0.3/ || echo "build-tools/30.0.3 directory not found"
+          ls -la $HOME/android-sdk/build-tools/31.0.0/ || echo "build-tools/31.0.0 directory not found"
           
           # 尝试重新安装build-tools
           echo "Attempting to reinstall build-tools..."
-          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --uninstall "build-tools;30.0.3"
-          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3"
+          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --uninstall "build-tools;31.0.0"
+          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;31.0.0"
           
           # 再次验证
-          if [ -f "$HOME/android-sdk/build-tools/30.0.3/aidl" ]; then
+          if [ -f "$HOME/android-sdk/build-tools/31.0.0/aidl" ]; then
             echo "AIDL found after reinstall"
           else
             echo "AIDL still not found, trying alternative build-tools version"
-            $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;31.0.0"
-            if [ -f "$HOME/android-sdk/build-tools/31.0.0/aidl" ]; then
-              echo "AIDL found in build-tools 31.0.0"
-              echo "$HOME/android-sdk/build-tools/31.0.0" >> $GITHUB_PATH
+            $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3"
+            if [ -f "$HOME/android-sdk/build-tools/30.0.3/aidl" ]; then
+              echo "AIDL found in build-tools 30.0.3"
+              echo "$HOME/android-sdk/build-tools/30.0.3" >> $GITHUB_PATH
             fi
           fi
         fi
