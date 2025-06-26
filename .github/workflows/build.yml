@@ -1,0 +1,265 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+        - debug
+        - release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: Cache buildozer global directory
+      uses: actions/cache@v3
+      with:
+        path: ~/.buildozer
+        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-
+    
+    - name: Cache buildozer directory
+      uses: actions/cache@v3
+      with:
+        path: .buildozer
+        key: ${{ runner.os }}-buildozer-local-${{ hashFiles('buildozer.spec') }}
+        restore-keys: |
+          ${{ runner.os }}-buildozer-local-
+    
+    - name: Install system dependencies
+      run: |
+        # Update package lists with retry mechanism
+        sudo apt-get update || (sleep 30 && sudo apt-get update)
+        
+        # Install dependencies in smaller groups to identify issues
+        echo "Installing basic tools..."
+        sudo apt-get install -y git zip unzip python3-pip
+        
+        echo "Installing Java and build tools..."
+        sudo apt-get install -y openjdk-8-jdk autoconf libtool pkg-config cmake
+        
+        echo "Installing development libraries..."
+        sudo apt-get install -y zlib1g-dev libncurses5-dev libncursesw5-dev \
+          libffi-dev libssl-dev libltdl-dev
+        
+        echo "Installing additional dependencies..."
+        sudo apt-get install -y libtinfo5 || echo "libtinfo5 not available, continuing..."
+        sudo apt-get install -y libfuse2 || echo "libfuse2 not available, continuing..."
+        
+        # Verify Java installation
+        java -version
+        echo "System dependencies installation completed successfully"
+    
+    - name: Install Python dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install buildozer cython==0.29.32
+        pip install -r requirements.txt
+    
+    - name: Setup Android SDK
+      run: |
+        set -e  # Exit on any error
+        
+        echo "Setting up Android SDK..."
+        
+        # 下载Android命令行工具
+        echo "Downloading Android command line tools..."
+        wget -q https://dl.google.com/android/repository/commandlinetools-linux-8512546_latest.zip || {
+          echo "Failed to download Android command line tools"
+          exit 1
+        }
+        
+        echo "Extracting command line tools..."
+        unzip -q commandlinetools-linux-8512546_latest.zip
+        
+        # 创建Android SDK目录结构
+        echo "Setting up Android SDK directory structure..."
+        mkdir -p $HOME/android-sdk/cmdline-tools
+        mv cmdline-tools $HOME/android-sdk/cmdline-tools/latest
+        
+        # 设置环境变量
+        echo "ANDROID_HOME=$HOME/android-sdk" >> $GITHUB_ENV
+        echo "ANDROID_SDK_ROOT=$HOME/android-sdk" >> $GITHUB_ENV
+        echo "$HOME/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_PATH
+        echo "$HOME/android-sdk/platform-tools" >> $GITHUB_PATH
+        echo "$HOME/android-sdk/build-tools/30.0.3" >> $GITHUB_PATH
+        
+        # 验证sdkmanager可用性
+        echo "Verifying sdkmanager..."
+        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --version
+        
+        # 接受许可证 - 使用更强的方法
+        echo "Accepting Android SDK licenses..."
+        mkdir -p $HOME/android-sdk/licenses
+        echo "24333f8a63b6825ea9c5514f83c2829b004d1fee" > $HOME/android-sdk/licenses/android-sdk-license
+        echo "84831b9409646a918e30573bab4c9c91346d8abd" > $HOME/android-sdk/licenses/android-sdk-preview-license
+        echo "d975f751698a77b662f1254ddbeed3901e976f5a" > $HOME/android-sdk/licenses/intel-android-extra-license
+        
+        # 再次确认许可证
+        yes | $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses || echo "License acceptance completed"
+        
+        # 安装必要的Android组件 - 使用buildozer.spec中指定的版本
+        echo "Installing Android SDK components..."
+        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-30" "build-tools;30.0.3" || {
+          echo "Failed to install basic Android components"
+          exit 1
+        }
+        
+        echo "Installing Android NDK..."
+        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "ndk;23.1.7779620" || {
+          echo "Failed to install NDK"
+          exit 1
+        }
+        
+        # 验证安装
+        echo "Verifying installations..."
+        ls -la $HOME/android-sdk/build-tools/
+        ls -la $HOME/android-sdk/platforms/
+        
+        echo "Android SDK setup completed successfully"
+    
+    - name: Verify buildozer.spec
+      run: |
+        echo "=== buildozer.spec 内容 ==="
+        cat buildozer.spec
+        echo "========================="
+    
+    - name: Build APK (Debug)
+      if: github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == ''
+      run: |
+        set -e
+        echo "Starting debug APK build..."
+        
+        # 显示环境信息
+        echo "=== Environment Information ==="
+        echo "ANDROID_HOME: $ANDROID_HOME"
+        echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+        echo "PATH: $PATH"
+        echo "Java version: $(java -version 2>&1)"
+        echo "Python version: $(python --version)"
+        echo "Buildozer version: $(buildozer version)"
+        echo "=============================="
+        
+        # 清理之前的构建
+        echo "Cleaning previous builds..."
+        buildozer android clean || echo "Clean failed, continuing..."
+        
+        # 开始构建
+        echo "Building debug APK..."
+        buildozer android debug -v || {
+          echo "Build failed, showing buildozer log..."
+          if [ -f .buildozer/logs/buildozer.log ]; then
+            echo "=== Buildozer Log ==="
+            tail -50 .buildozer/logs/buildozer.log
+            echo "==================="
+          fi
+          exit 1
+        }
+        
+        echo "Debug APK build completed successfully"
+    
+    - name: Build APK (Release)
+      if: github.event.inputs.build_type == 'release'
+      run: |
+        set -e
+        echo "Starting release APK build..."
+        
+        # 显示环境信息
+        echo "=== Environment Information ==="
+        echo "ANDROID_HOME: $ANDROID_HOME"
+        echo "ANDROID_SDK_ROOT: $ANDROID_SDK_ROOT"
+        echo "Java version: $(java -version 2>&1)"
+        echo "Python version: $(python --version)"
+        echo "Buildozer version: $(buildozer version)"
+        echo "=============================="
+        
+        # 清理之前的构建
+        echo "Cleaning previous builds..."
+        buildozer android clean || echo "Clean failed, continuing..."
+        
+        # 开始构建
+        echo "Building release APK..."
+        buildozer android release -v || {
+          echo "Build failed, showing buildozer log..."
+          if [ -f .buildozer/logs/buildozer.log ]; then
+            echo "=== Buildozer Log ==="
+            tail -50 .buildozer/logs/buildozer.log
+            echo "==================="
+          fi
+          exit 1
+        }
+        
+        echo "Release APK build completed successfully"
+    
+    - name: List generated files
+      run: |
+        echo "=== 生成的文件 ==="
+        find . -name "*.apk" -type f
+        ls -la bin/ || echo "bin目录不存在"
+    
+    - name: Upload Debug APK
+      if: github.event.inputs.build_type == 'debug' || github.event.inputs.build_type == ''
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-debug-apk
+        path: bin/*-debug.apk
+        retention-days: 30
+    
+    - name: Upload Release APK
+      if: github.event.inputs.build_type == 'release'
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-release-apk
+        path: bin/*-release*.apk
+        retention-days: 90
+    
+    - name: Create Release (if tag)
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: bin/*.apk
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Build Summary
+      run: |
+        echo "## 🎉 构建完成!" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📱 生成的APK文件:" >> $GITHUB_STEP_SUMMARY
+        for apk in bin/*.apk; do
+          if [ -f "$apk" ]; then
+            echo "- $(basename "$apk") ($(du -h "$apk" | cut -f1))" >> $GITHUB_STEP_SUMMARY
+          fi
+        done
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### 📥 下载方式:" >> $GITHUB_STEP_SUMMARY
+        echo "1. 点击上方 'Artifacts' 部分" >> $GITHUB_STEP_SUMMARY
+        echo "2. 下载对应的APK文件" >> $GITHUB_STEP_SUMMARY
+        echo "3. 在Android设备上安装" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### ⚙️ 构建信息:" >> $GITHUB_STEP_SUMMARY
+        echo "- 构建时间: $(date)" >> $GITHUB_STEP_SUMMARY
+        echo "- Python版本: $(python --version)" >> $GITHUB_STEP_SUMMARY
+        echo "- Buildozer版本: $(buildozer version)" >> $GITHUB_STEP_SUMMARY
