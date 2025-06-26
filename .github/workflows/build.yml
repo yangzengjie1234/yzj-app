@@ -120,7 +120,7 @@ jobs:
         
         # 安装必要的Android组件 - 使用buildozer.spec中指定的版本
         echo "Installing Android SDK components..."
-        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-30" "build-tools;30.0.3" || {
+        $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "platform-tools" "platforms;android-31" "build-tools;30.0.3" || {
           echo "Failed to install basic Android components"
           exit 1
         }
@@ -135,6 +135,33 @@ jobs:
         echo "Verifying installations..."
         ls -la $HOME/android-sdk/build-tools/
         ls -la $HOME/android-sdk/platforms/
+        
+        # 验证AIDL工具
+        echo "Verifying AIDL tool..."
+        if [ -f "$HOME/android-sdk/build-tools/30.0.3/aidl" ]; then
+          echo "AIDL found at: $HOME/android-sdk/build-tools/30.0.3/aidl"
+          $HOME/android-sdk/build-tools/30.0.3/aidl --version || echo "AIDL version check failed"
+        else
+          echo "AIDL not found, listing build-tools contents:"
+          ls -la $HOME/android-sdk/build-tools/30.0.3/ || echo "build-tools/30.0.3 directory not found"
+          
+          # 尝试重新安装build-tools
+          echo "Attempting to reinstall build-tools..."
+          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager --uninstall "build-tools;30.0.3"
+          $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;30.0.3"
+          
+          # 再次验证
+          if [ -f "$HOME/android-sdk/build-tools/30.0.3/aidl" ]; then
+            echo "AIDL found after reinstall"
+          else
+            echo "AIDL still not found, trying alternative build-tools version"
+            $HOME/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;31.0.0"
+            if [ -f "$HOME/android-sdk/build-tools/31.0.0/aidl" ]; then
+              echo "AIDL found in build-tools 31.0.0"
+              echo "$HOME/android-sdk/build-tools/31.0.0" >> $GITHUB_PATH
+            fi
+          fi
+        fi
         
         echo "Android SDK setup completed successfully"
     
